@@ -4,7 +4,7 @@ let unique xs = List.fold_left (fun res x -> if List.mem x res then res else x::
 let empty l = (List.length l) = 0
 let implode f sep xs =
     if empty xs then ()
-    else f (List.hd xs) ; List.iter (fun x -> print_string sep ; f x) (List.tl xs)
+    else (f (List.hd xs) ; List.iter (fun x -> print_string sep ; f x) (List.tl xs))
     
 
 (* KERNEL *)
@@ -92,7 +92,8 @@ type goalstate = goal list * justification
 type tactic = goal -> goalstate
 
 let by (tac : tactic) ((agoals, ajust) : goalstate) =
-    let agoal = List.hd agoals in
+    if empty agoals then failwith "by: list of subgoals is empty, we're done."
+    else let agoal = List.hd agoals in
         let (bgoals, bjust) = tac agoal in
             (List.append bgoals (List.tl agoals), fun thms -> ajust (List.append [(bjust thms)] thms))
 
@@ -133,7 +134,9 @@ let rec print_form =
                      else print_form a; print_string " -> "; print_form b
 
 let print_thm =
-    function t -> implode print_form ", " (hyp t); print_string " |- "; print_form (concl t)
+    function t -> 
+    if empty (hyp t) then (print_string "|- "; print_form (concl t))
+    else (implode print_form ", " (hyp t); print_string " |- "; print_form (concl t))
 
 (* Tests *)
 
@@ -143,12 +146,23 @@ let mk_init =
 let a = mk_var "a"
 let b = mk_var "b"
 
-let gs = mk_init ([mk_impl a b; a], b)
-
-let (_, just) = by assumption (by assumption (by (elim_tac a) gs))
-let t = just []
+let gs1 = mk_init ([mk_impl a b; a], b)
+let gs2 = mk_init ([], mk_impl a a)
 
 ;;
 
-print_thm t;
+let (_, just) = by assumption (by assumption (by (elim_tac a) gs1)) in
+    let t = just [] in
+        print_thm t;
+
 print_string "\n"
+
+;;
+
+let (_, just) = by assumption (by intro_tac gs2) in
+    let t = just [] in
+        print_thm t;
+
+print_string "\n"
+
+;;
