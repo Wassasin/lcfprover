@@ -1,6 +1,11 @@
 (* LIB *)
 
 let unique xs = List.fold_left (fun res x -> if List.mem x res then res else x::res) [] xs (* TODO more efficient *)
+let empty l = (List.length l) = 0
+let implode f sep xs =
+    if empty xs then ()
+    else f (List.hd xs) ; List.iter (fun x -> print_string sep ; f x) (List.tl xs)
+    
 
 (* KERNEL *)
 
@@ -22,6 +27,7 @@ module type LCF_kernel =
         val mk_var : string -> form
         val mk_impl : form -> form -> form
         
+        val dest_var : form -> string
         val dest_impl : form -> form * form
         
         val hyp : thm -> form list
@@ -62,6 +68,11 @@ module LCF : LCF_kernel = struct
     let mk_var str = Var(str)
     let mk_impl a b = Impl(a, b)
     
+    let dest_var =
+        function
+          Impl(_, _) -> failwith "dest_var, is an Impl"
+        | Var(str) -> str
+    
     let dest_impl =
         function
           Impl(a, b) -> (a, b)
@@ -88,7 +99,6 @@ let by (tac : tactic) ((agoals, ajust) : goalstate) =
 (* TACTICS WHICH CORRESPOND TO KERNEL RULES *)
 
 let thm_to_form t = List.fold_right mk_impl (hyp t) (concl t)
-let empty l = (List.length l) = 0
 
 let assumption = (
     fun (asl, c) ->
@@ -113,6 +123,18 @@ let elim_tac =
                 let rthm = List.find (fun thm -> concl thm = a) thms in
                     elim_rule lthm rthm)
 
+(* Pretty Printer *)
+
+let rec print_form =
+    function x ->
+        if is_var x then print_string (dest_var x)
+        else match dest_impl x with
+           (a, b) -> if is_impl a then (print_string "("; print_form a; print_string ") -> "; print_form b)
+                     else print_form a; print_string " -> "; print_form b
+
+let print_thm =
+    function t -> implode print_form ", " (hyp t); print_string " |- "; print_form (concl t)
+
 (* Tests *)
 
 let mk_init =
@@ -120,8 +142,13 @@ let mk_init =
 
 let a = mk_var "a"
 let b = mk_var "b"
-let g = ([mk_impl a b; a], b)
-let gs = mk_init g
+
+let gs = mk_init ([mk_impl a b; a], b)
 
 let (_, just) = by assumption (by assumption (by (elim_tac a) gs))
 let t = just []
+
+;;
+
+print_thm t;
+print_string "\n"
