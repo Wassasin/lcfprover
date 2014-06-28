@@ -172,6 +172,7 @@ let e_finish (t : tactic) = try let _ = e t in failwith "did not finish" with QE
 
 let a = mk_var "a"
 let c = mk_var "c"
+let d = mk_var "d"
 
 ;;
 
@@ -182,6 +183,16 @@ e_finish assumption ;;
 g (goal_to_form ([a; mk_impl a c], c)) ;;
 e intro_tac ;;
 e intro_tac ;;
+e (elim_tac a) ;;
+e assumption ;;
+e_finish assumption ;;
+
+g (mk_impl (mk_impl a c) (mk_impl (mk_impl c d) (mk_impl a d))) ;;
+e intro_tac ;;
+e intro_tac ;;
+e intro_tac ;;
+e (elim_tac c) ;;
+e assumption ;;
 e (elim_tac a) ;;
 e assumption ;;
 e_finish assumption ;;
