@@ -79,14 +79,14 @@ include LCF (* Include sealed kernel *)
 
 (* Pretty Printer *)
 
-let rec print_form x = if is_var x
+let rec print_form (x : form) = if is_var x
     then print_string (dest_var x)
     else match dest_impl x with
         (a, b) -> if is_impl a
             then (print_string "("; print_form a; print_string ") -> "; print_form b)
             else (print_form a; print_string " -> "; print_form b)
 
-let print_thm t = if empty (hyp t)
+let print_thm (t : thm) = if empty (hyp t)
     then (print_string "|- "; print_form (concl t))
     else (implode print_form ", " (hyp t); print_string " |- "; print_form (concl t))
 
@@ -149,20 +149,39 @@ let elim_tac = (
             ([ (asl, mk_impl a c); (asl, a) ], just)
     : form -> tactic)
 
-(* Tests *)
-
 let mk_init g = ([g], assume (goal_to_form g))
 
-let a = mk_var "a"
-let b = mk_var "b"
+(* INTERACTIVE COMMANDS *)
 
-let g1 = ([mk_impl a b; a], b)
-let g2 = ([], mk_impl a a)
+exception QED
+
+let __history__ = ref []
+
+let p (_ : unit) = let (goals, thm) = List.hd (!__history__) in 
+    if empty goals
+        then raise QED
+        else List.hd goals
+let g (f : form) = __history__ := [mk_init ([], f)] ; p ()
+let e (t : tactic) = __history__ := List.append [by t (List.hd !__history__)] !__history__ ; p ()
+let b (_ : unit) = __history__ := List.tl !__history__ ; p ()
+
+let top_thm (_ : unit) = let (_, thm) = List.hd !__history__ in thm
+let e_finish (t : tactic) = try let _ = e t in failwith "did not finish" with QED -> print_thm_line (top_thm ()) ;;
+
+(* Tests *)
+
+let a = mk_var "a"
+let c = mk_var "c"
 
 ;;
 
-let (_, t) = by assumption (by assumption (by (elim_tac a) (mk_init g1))) in
-    print_thm_line t;
+g (mk_impl a a) ;;
+e intro_tac ;;
+e_finish assumption ;;
 
-let (_, t) = by assumption (by intro_tac (mk_init g2)) in
-    print_thm_line t;
+g (goal_to_form ([a; mk_impl a c], c)) ;;
+e intro_tac ;;
+e intro_tac ;;
+e (elim_tac a) ;;
+e assumption ;;
+e_finish assumption ;;
