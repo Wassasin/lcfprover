@@ -43,10 +43,7 @@ module LCF : LCF_kernel = struct
     type thm = Sequent of (form list * form)
 
     let assume a = Sequent([a], a)
-    let intro_rule a (Sequent(benv, b)) =
-        if List.mem a benv
-        then Sequent(List.filter (fun x -> a <> x) benv, Impl(a, b))
-        else failwith("intro_rule, incomplete environment")
+    let intro_rule a (Sequent(benv, b)) = Sequent(List.filter (fun x -> a <> x) benv, Impl(a, b))
     let elim_rule athm (Sequent(cenv, c)) =
         match athm with
             (Sequent(aenv, Impl(a, b))) ->
@@ -82,24 +79,54 @@ module LCF : LCF_kernel = struct
     let concl (Sequent(asl, c)) = c
 end
 
-include LCF
+include LCF (* Include sealed kernel *)
+
+(* Pretty Printer *)
+
+let rec print_form =
+    function x ->
+        if is_var x then print_string (dest_var x)
+        else match dest_impl x with
+           (a, b) -> if is_impl a then (print_string "("; print_form a; print_string ") -> "; print_form b)
+                     else (print_form a; print_string " -> "; print_form b)
+
+let print_thm =
+    function t -> 
+    if empty (hyp t) then (print_string "|- "; print_form (concl t))
+    else (implode print_form ", " (hyp t); print_string " |- "; print_form (concl t))
 
 (* PACKAGE FOR GOAL-DIRECTED PROOFS *)
 
+let goal_to_form (asl, c) = List.fold_right mk_impl asl c
+let thm_to_form t = List.fold_right mk_impl (hyp t) (concl t)
+
 type goal = form list * form
 type justification = thm list -> thm
-type goalstate = goal list * justification
-type tactic = goal -> goalstate
+type goalstate = goal list * thm
+type tactic = goal -> goal list * justification
 
-let by (tac : tactic) ((agoals, ajust) : goalstate) =
+let by (tac : tactic) ((agoals, athm) : goalstate) =
     if empty agoals then failwith "by: list of subgoals is empty, we're done."
-    else let agoal = List.hd agoals in
+    else let (agoal_asl, _) as agoal = List.hd agoals in
+        (* Apply tactic to first goal *)
         let (bgoals, bjust) = tac agoal in
-            (List.append bgoals (List.tl agoals), fun thms -> ajust (List.append [(bjust thms)] thms))
+            (* Build theorems out of canonical form of subgoals *)
+            let bthms = List.map (
+                (* Generate theorems & push assumptions to left hand side of sequent *)
+                function (bgoal_asl, _) as bgoal -> List.fold_right (
+                        fun assump thm -> elim_rule thm (assume assump)
+                    ) (List.rev bgoal_asl) (assume (goal_to_form bgoal))
+            ) bgoals in
+                (* Use newfound theorems to justify next step *)
+                let bthm = bjust bthms in
+                    (* Reintroduce assumptions from starting subgoal *)
+                    let bthm = List.fold_right intro_rule agoal_asl bthm in
+                        (* Create explicit implication from first goal *)
+                        let athm = intro_rule (goal_to_form agoal) athm in
+                            (* Eliminate first goal with justification from tactic, and finish *)
+                                (List.append bgoals (List.tl agoals), elim_rule athm bthm)
 
 (* TACTICS WHICH CORRESPOND TO KERNEL RULES *)
-
-let thm_to_form t = List.fold_right mk_impl (hyp t) (concl t)
 
 let assumption = (
     fun (asl, c) ->
@@ -124,44 +151,27 @@ let elim_tac =
                 let rthm = List.find (fun thm -> concl thm = a) thms in
                     elim_rule lthm rthm)
 
-(* Pretty Printer *)
-
-let rec print_form =
-    function x ->
-        if is_var x then print_string (dest_var x)
-        else match dest_impl x with
-           (a, b) -> if is_impl a then (print_string "("; print_form a; print_string ") -> "; print_form b)
-                     else print_form a; print_string " -> "; print_form b
-
-let print_thm =
-    function t -> 
-    if empty (hyp t) then (print_string "|- "; print_form (concl t))
-    else (implode print_form ", " (hyp t); print_string " |- "; print_form (concl t))
-
 (* Tests *)
 
-let mk_init =
-    (function (asl, c) -> ([(asl, c)], fun thms -> List.find (fun thm -> concl thm = c) thms) : tactic) 
+let mk_init g = ([g], assume (goal_to_form g))
 
 let a = mk_var "a"
 let b = mk_var "b"
 
-let gs1 = mk_init ([mk_impl a b; a], b)
-let gs2 = mk_init ([], mk_impl a a)
+let g1 = ([mk_impl a b; a], b)
+let g2 = ([], mk_impl a a)
 
 ;;
 
-let (_, just) = by assumption (by assumption (by (elim_tac a) gs1)) in
-    let t = just [] in
-        print_thm t;
+let (_, t) = by assumption (by assumption (by (elim_tac a) (mk_init g1))) in
+    print_thm t;
 
 print_string "\n"
 
 ;;
 
-let (_, just) = by assumption (by intro_tac gs2) in
-    let t = just [] in
-        print_thm t;
+let (_, t) = by assumption (by intro_tac (mk_init g2)) in
+    print_thm t;
 
 print_string "\n"
 
